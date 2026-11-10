@@ -1,0 +1,10 @@
+# Encrypted manifest cache: replaced by hand on every game update, never versioned.
+EncryptedCache/
+
+# Unpacked output produced by Main.py.
+gkmas/
+DecryptedCache/
+
+# Python bytecode caches.
+__pycache__/
+*.py[cod]
