@@ -19,6 +19,21 @@ __IV = "LvAUtf+tnz"
 __inputPathString = "./EncryptedCache/octocacheevai"
 __outputPathString = "./DecryptedCache"
 
+# Column order shared by the assetBundleList and resourceList tables, used when
+# binding rows as SQL parameters.
+__COLUMNS = ("id", "filepath", "name", "size", "crc", "priority", "tagid",
+             "dependencie", "state", "md5", "objectName", "generation",
+             "uploadVersionId", "type")
+
+def __scalarValue(value):
+    """SQLite can only bind scalars. Repeated protobuf fields reach us as lists,
+    so flatten those to the same textual form the table has always stored."""
+    if isinstance(value, (list, tuple)):
+        return str(list(value))
+    if isinstance(value, dict):
+        return json.dumps(value, sort_keys=True)
+    return value
+
 # Initialization
 console = Console()
 
@@ -144,83 +159,23 @@ def __createSQLiteDB(jDict: dict, outputString: str, isDiff: bool = False):
     try:
         revision = jDict.get("revision")
         urlFormat = jDict.get("urlFormat")
-        tagname = jDict.get("tagname")
+        tagname = __scalarValue(jDict.get("tagname"))
 
         cur.execute("DELETE FROM manifest")
-        cur.execute(f"""
-        INSERT INTO manifest VALUES (
-        { revision },
-        '{ urlFormat }',
-        '{ tagname }'
-        )""")
+        cur.execute(
+            "INSERT INTO manifest (revision, urlFormat, tagname) VALUES (?, ?, ?)",
+            (revision, urlFormat, tagname),
+        )
 
-        for assetBundleList in jDict["assetBundleList"]:
-            id = assetBundleList.get("id")
-            filepath = assetBundleList.get("filepath")
-            name = assetBundleList.get("name")
-            size = assetBundleList.get("size")
-            crc = assetBundleList.get("crc")
-            priority = assetBundleList.get("priority")
-            tagid = assetBundleList.get("tagid")
-            dependencie = assetBundleList.get("dependencie")
-            state = assetBundleList.get("state")
-            md5 = assetBundleList.get("md5")
-            objectName = assetBundleList.get("objectName")
-            generation = assetBundleList.get("generation")
-            uploadVersionId = assetBundleList.get("uploadVersionId")
-            _type = assetBundleList.get("type")
-
-            cur.execute(f"""
-            INSERT OR REPLACE INTO assetBundleList VALUES (
-            { id if id != None else "NULL" },
-            { f"'{filepath}'" if filepath != None else "NULL"},
-            { f"'{name}'" if name != None else "NULL"},
-            { size if size != None else "NULL" },
-            { crc if crc != None else "NULL" },
-            { priority if priority != None else "NULL" },
-            { f"'{tagid}'" if tagid != None else "NULL"},
-            { f"'{dependencie}'" if dependencie != None else "NULL"},
-            { f"'{state}'" if state != None else "NULL"},
-            { f"'{md5}'" if md5 != None else "NULL"},
-            { f"'{objectName}'" if objectName != None else "NULL"},
-            { generation if generation != None else "NULL" },
-            { uploadVersionId if uploadVersionId != None else "NULL" },
-            { f"'{_type}'" if _type != None else "NULL"}
-            )""")
-
-        for resourceList in jDict["resourceList"]:
-            id = resourceList.get("id")
-            filepath = resourceList.get("filepath")
-            name = resourceList.get("name")
-            size = resourceList.get("size")
-            crc = resourceList.get("crc")
-            priority = resourceList.get("priority")
-            tagid = resourceList.get("tagid")
-            dependencie = resourceList.get("dependencie")
-            state = resourceList.get("state")
-            md5 = resourceList.get("md5")
-            objectName = resourceList.get("objectName")
-            generation = resourceList.get("generation")
-            uploadVersionId = resourceList.get("uploadVersionId")
-            _type = resourceList.get("type")
-
-            cur.execute(f"""
-            INSERT OR REPLACE INTO resourceList VALUES (
-            { id if id != None else "NULL" },
-            { f"'{filepath}'" if filepath != None else "NULL"},
-            { f"'{name}'" if name != None else "NULL"},
-            { size if size != None else "NULL" },
-            { crc if crc != None else "NULL" },
-            { priority if priority != None else "NULL" },
-            { f"'{tagid}'" if tagid != None else "NULL"},
-            { f"'{dependencie}'" if dependencie != None else "NULL"},
-            { f"'{state}'" if state != None else "NULL"},
-            { f"'{md5}'" if md5 != None else "NULL"},
-            { f"'{objectName}'" if objectName != None else "NULL"},
-            { generation if generation != None else "NULL" },
-            { uploadVersionId if uploadVersionId != None else "NULL" },
-            { f"'{_type}'" if _type != None else "NULL"}
-            )""")
+        # Every value is bound as a parameter: manifest fields are third-party data
+        # and must never be spliced into SQL text.
+        placeholders = ", ".join("?" * len(__COLUMNS))
+        for table in ("assetBundleList", "resourceList"):
+            cur.executemany(
+                "INSERT OR REPLACE INTO " + table
+                + " (" + ", ".join(__COLUMNS) + ") VALUES (" + placeholders + ")",
+                [tuple(__scalarValue(row.get(column)) for column in __COLUMNS) for row in jDict[table]],
+            )
 
         conn.commit()
         console.print("[bold green]>>> [Succeed][/bold green] All data has been written into SQLite database.\n")
