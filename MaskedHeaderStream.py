@@ -33,23 +33,28 @@ def unObfuscate(jDict: dict, offset: int = 0, streamPos: int = 0, headerLength: 
     errorCount = 0
     for path in filePaths:
         count += 1
-        buff = path.read_bytes()
         md5 = path.name
         name = md5NameDict.get(md5)
+        _type = md5TypeDict.get(md5)
+        exportFolder = Path(__outputPath).joinpath(str(jDict["revision"])).joinpath(_type)
+        exportFile = exportFolder.joinpath(name + ".unity3d")
+        # Skip when the exported copy is already complete. Unobfuscating rewrites
+        # bytes in place, so a finished export always has the same length as its
+        # source; anything shorter is a leftover from an interrupted run.
+        if exportFile.is_file() and exportFile.stat().st_size == path.stat().st_size:
+            console.print(f"[bold white]>>> [Skipped][/bold white] ({count}/{allCount}) Assetbundle '{ name }.unity3d' has already been unobfuscated.")
+            continue
+        buff = path.read_bytes()
         if buff[0:5] == unitySignature:
-            _type = md5TypeDict.get(md5)
-            exportFolder = Path(__outputPath).joinpath(str(jDict["revision"])).joinpath(_type)
             exportFolder.mkdir(parents=True, exist_ok=True)
-            exportFolder.joinpath(name + ".unity3d").write_bytes(buff)
+            exportFile.write_bytes(buff)
             console.print(f"[bold withe]>>> [Info][/bold withe] ({count}/{allCount}) Assetbundle '{ name }.unity3d' is a non-obfuscated file.")
             continue
         else:
             unityFS = __cryptByString(buff, md5NameDict[md5], offset, streamPos, headerLength)
             if unityFS.__len__() > 0 and unityFS[0:5] == unitySignature:
-                _type = md5TypeDict.get(md5)
-                exportFolder = Path(__outputPath).joinpath(str(jDict["revision"])).joinpath(_type)
                 exportFolder.mkdir(parents=True, exist_ok=True)
-                flag = exportFolder.joinpath(name + ".unity3d").write_bytes(unityFS)
+                flag = exportFile.write_bytes(unityFS)
                 if flag:
                     console.print(f"[bold green]>>> [Succeed][/bold green] ({count}/{allCount}) Assetbundle '{ name }.unity3d' has been successfully unobfuscated.")
                 else:
@@ -60,36 +65,6 @@ def unObfuscate(jDict: dict, offset: int = 0, streamPos: int = 0, headerLength: 
                 console.print(f"[bold red]>>> [Error][/bold red] ({count}/{allCount}) Unobfuscates assetbundle '{ name }.unity3d' failed.")
                 
     console.print(f"[bold white]>>> [Info][/bold white] Unobfuscating operations all done, { errorCount } error(s) were occurred during the entire workflow.")
-
-def rename(jDict: dict):
-    resourceList: list = jDict["resourceList"]
-    md5NameDict = {
-        it["md5"] : it["name"]
-        for it in resourceList
-    }
-    md5TypeDict = {
-        it["md5"] : it["type"]
-        for it in resourceList
-    }
-    contents = Path(__inputDirectory).glob("**/*")
-    try:
-        filePaths = [path for path in contents if path.name in md5NameDict]
-    except FileNotFoundError:
-        console.print(f"[bold red]>>> [Error][/bold red] Folder '{__inputDirectory}' is not exists. Rename action has been discarted.")
-        return
-    filePaths.sort(key=lambda x: x.name)
-    count = 0
-    allCount = filePaths.__len__()
-    for path in filePaths:
-        count += 1
-        md5 = path.name
-        name = md5NameDict.get(md5)
-        _type = md5TypeDict.get(md5)
-        exportFolder = Path(__outputPath).joinpath(str(jDict["revision"])).joinpath(_type)
-        exportFolder.mkdir(parents=True, exist_ok=True)
-        exportFolder.joinpath(name).write_bytes(path.read_bytes())
-        console.print(f"[bold green]>>> [Succeed][/bold green] ({count}/{allCount}) Resource '{ name }' has been successfully renamed.")
-    console.print(f"[bold white]>>> [Info][/bold white] Rename operations all done.")
 
 def __stringToMaskBytes(maskString: str, maskStringLength: int, bytesLength: int) -> bytes:
     # maskBytes = bytes(bytesLength)
