@@ -16,15 +16,25 @@ RETRY_BACKOFF = 1.0   # seconds; doubles after each retry (1s, 2s, 4s, ...)
 # Files that exhausted their retries during this run, collected for the final summary.
 _FAILED_DOWNLOADS = []
 
-def _write_atomically(file_path: str, data: bytes):
-    """Writes next to the target and swaps it in, so a failed or interrupted write
-    never leaves a half-written payload at the final path. The size check in
-    download() only sees complete files as a result."""
+def _stream_to_file(file_path: str, response, expectedSize=None):
+    """Streams the response body into a sibling .part file and swaps it in.
+
+    Returns the byte count when the payload is complete and matches expectedSize
+    (when the manifest states one); returns None after discarding a short read.
+    A failed transfer or write never leaves a partial file at the final path.
+    """
     tempPath = f"{file_path}.part"
+    written = 0
     try:
         with open(tempPath, 'wb') as f:
-            f.write(data)
+            for chunk in response.iter_content(1024 * 1024):
+                f.write(chunk)
+                written += len(chunk)
+        if expectedSize is not None and written != expectedSize:
+            os.remove(tempPath)
+            return None
         os.replace(tempPath, file_path)
+        return written
     except BaseException:
         try:
             os.remove(tempPath)
@@ -32,27 +42,32 @@ def _write_atomically(file_path: str, data: bytes):
             pass
         raise
 
-def download_file(url, file_path, name, count, total, is_asset):
+def download_file(url, file_path, name, count, total, is_asset, expectedSize=None):
     type_desc = "Assetbundle" if is_asset else "ResourceBundle"
     attempts = MAX_RETRIES + 1
     reason = "unknown"
     for attempt in range(1, attempts + 1):
         try:
-            response = requests.get(url, timeout=REQUEST_TIMEOUT)
+            # stream=True keeps peak memory at one chunk per worker instead of the
+            # whole payload, which for the 1 GB resources would be several GB.
+            with requests.get(url, timeout=REQUEST_TIMEOUT, stream=True) as response:
+                if response.status_code == 200:
+                    if _stream_to_file(file_path, response, expectedSize) is not None:
+                        print(f">>> [Succeed] ({count}/{total}) {type_desc} '{name}' has been saved as {file_path}.")
+                        return True
+                    # A short payload is usually a dropped connection, so let the
+                    # normal retry ladder handle it instead of failing outright.
+                    reason = f"size mismatch (expected {expectedSize}B)"
+                else:
+                    reason = f"HTTP {response.status_code}"
+                    # 4xx (429 Too Many Requests aside) will not improve on retry: fail fast,
+                    # but still record it as a failure so the final summary is complete.
+                    if 400 <= response.status_code < 500 and response.status_code != 429:
+                        print(f">>> [Failed] ({count}/{total}) {type_desc} '{name}' not retried ({reason}, client error).")
+                        _FAILED_DOWNLOADS.append((name, reason))
+                        return False
         except requests.RequestException as e:
             reason = type(e).__name__
-        else:
-            if response.status_code == 200:
-                _write_atomically(file_path, response.content)
-                print(f">>> [Succeed] ({count}/{total}) {type_desc} '{name}' has been saved as {file_path}.")
-                return True
-            reason = f"HTTP {response.status_code}"
-            # 4xx (429 Too Many Requests aside) will not improve on retry: fail fast,
-            # but still record it as a failure so the final summary is complete.
-            if 400 <= response.status_code < 500 and response.status_code != 429:
-                print(f">>> [Failed] ({count}/{total}) {type_desc} '{name}' not retried ({reason}, client error).")
-                _FAILED_DOWNLOADS.append((name, reason))
-                return False
         if attempt < attempts:
             delay = RETRY_BACKOFF * (2 ** (attempt - 1))
             print(f">>> [Retry] ({count}/{total}) {type_desc} '{name}' attempt {attempt}/{attempts} failed ({reason}), retrying in {delay:.0f}s.")
@@ -115,7 +130,7 @@ def download(jdic: dict, download_dir: str, download_asset: int, download_resour
                 continue
             if presentSize is not None:
                 print(f">>> [Stale] ({count}/{assetnum}) Assetbundle '{ab_name}.unity3d' is {presentSize}B but manifest says {expectedSize}B, fetching again.")
-            futures[executor.submit(download_file, url, file_path, ab_name, count, assetnum, True)] = ab_name
+            futures[executor.submit(download_file, url, file_path, ab_name, count, assetnum, True, expectedSize)] = ab_name
         
         _collect_failures(futures, "asset bundle")
 
@@ -141,7 +156,7 @@ def download(jdic: dict, download_dir: str, download_asset: int, download_resour
                 continue
             if presentSize is not None:
                 print(f">>> [Stale] ({count}/{resourcenum}) ResourceBundle '{res_name}' is {presentSize}B but manifest says {expectedSize}B, fetching again.")
-            futures[executor.submit(download_file, url, file_path, res_name, count, resourcenum, False)] = res_name
+            futures[executor.submit(download_file, url, file_path, res_name, count, resourcenum, False, expectedSize)] = res_name
         
         _collect_failures(futures, "resource bundle")
 
