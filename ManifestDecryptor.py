@@ -37,7 +37,7 @@ def __scalarValue(value):
 # Initialization
 console = Console()
 
-def __decryptCache(key = __KEY, iv = __IV) -> octodb_pb2.Database:
+def __decryptCache(key = __KEY, iv = __IV, inputPath = __inputPathString, outputDir = __outputPathString) -> octodb_pb2.Database:
     """Decrypts a cache file (usually named 'octocacheevai') and deserializes it to a protobuf object
 
     Args:
@@ -54,7 +54,7 @@ def __decryptCache(key = __KEY, iv = __IV) -> octodb_pb2.Database:
     iv = hashlib.md5(iv).digest()
 
     cipher = AES.new(key, AES.MODE_CBC, iv)
-    encryptCachePath = Path(__inputPathString)
+    encryptCachePath = Path(inputPath)
 
     try:
         encryptedBytes = encryptCachePath.read_bytes()
@@ -77,7 +77,7 @@ def __decryptCache(key = __KEY, iv = __IV) -> octodb_pb2.Database:
     # Revision number should probably change with every update..?
     console.print(f"[bold]>>> [Info][/bold] Current revision : {protoDatabase.revision}\n")
     # Get output dir and append it to the filename
-    outputPath = Path(f"{__outputPathString}/manifest_v{protoDatabase.revision}")
+    outputPath = Path(f"{outputDir}/manifest_v{protoDatabase.revision}")
     # Write the decrypted cache to a local file
     try:
         outputPath.parent.mkdir(parents=True, exist_ok=True)
@@ -292,20 +292,20 @@ def __appendType(d: dict) -> dict:
         it["type"] = typeStr
     return d
 
-def doDecrypt() -> dict:
+def doDecrypt(inputPath = __inputPathString, outputDir = __outputPathString) -> dict:
     # Decrypt cache file
-    protoDb = __decryptCache()
+    protoDb = __decryptCache(inputPath = inputPath, outputDir = outputDir)
     # Convert protobuf to json string
     jsonString = __protoDb2Json(protoDb)
     # Deserialize json string to a dict
     jDict = json.loads(jsonString)
     jDict = __appendType(jDict)
     # Define SQLite DB file output path string
-    pathString = Path(f"{__outputPathString}/manifest_v{jDict['revision']}.db")
+    pathString = Path(f"{outputDir}/manifest_v{jDict['revision']}.db")
     # Create SQLite DB file
     __createSQLiteDB(jDict, pathString)
     # Define the output path of json file
-    outputPath = Path(f"{__outputPathString}/manifest_v{protoDb.revision}.json")
+    outputPath = Path(f"{outputDir}/manifest_v{protoDb.revision}.json")
     # Write the json string into a file
     __writeJsonFile(jDict, outputPath)
     # Diff

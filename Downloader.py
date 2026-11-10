@@ -13,8 +13,26 @@ REQUEST_TIMEOUT = (10, 60)
 MAX_RETRIES = 3
 RETRY_BACKOFF = 1.0   # seconds; doubles after each retry (1s, 2s, 4s, ...)
 
+# URL template used when the manifest does not carry one; {o} is the object name.
+DEFAULT_URL_FORMAT = "https://object.asset.game-gakuen-idolmaster.jp/{o}"
+
 # Files that exhausted their retries during this run, collected for the final summary.
 _FAILED_DOWNLOADS = []
+
+def _buildUrl(urlFormat, objectName):
+    """Expands the URL template taken from the manifest.
+
+    Supports the '{o}' placeholder used today and a plain prefix ending in '/',
+    and falls back to the built-in CDN when the format is unrecognised.
+    """
+    if not isinstance(urlFormat, str) or not urlFormat:
+        urlFormat = DEFAULT_URL_FORMAT
+    if "{o}" in urlFormat:
+        return urlFormat.replace("{o}", objectName)
+    if urlFormat.endswith("/"):
+        return urlFormat + objectName
+    print(f">>> [Warn] Unsupported urlFormat {urlFormat!r}, falling back to the built-in CDN.")
+    return DEFAULT_URL_FORMAT.replace("{o}", objectName)
 
 def _stream_to_file(file_path: str, response, expectedSize=None):
     """Streams the response body into a sibling .part file and swaps it in.
@@ -95,13 +113,15 @@ def _collect_failures(futures: dict, kind: str):
     if aborted:
         print(f">>> [Summary] {aborted} {kind}(s) aborted by local errors.")
 
-def download(jdic: dict, download_dir: str, download_asset: int, download_resource: int, num_worker: int):
+def download(jdic: dict, download_dir: str, download_asset: int, download_resource: int, num_worker: int, urlFormat: str = None):
     assetBundleList: list = jdic['assetBundleList']
     resourceList: list = jdic['resourceList']
     assetnum = len(assetBundleList)
     resourcenum = len(resourceList)
     assetpath = f"{download_dir}/Assets"
     resourcepath = f"{download_dir}/Resource"
+    # The manifest owns the CDN template; the built-in constant is only a fallback.
+    urlFormat = urlFormat or jdic.get("urlFormat") or DEFAULT_URL_FORMAT
     
     print("Total asset number is:", assetnum)
     print("Total resource number is:", resourcenum)
@@ -119,7 +139,7 @@ def download(jdic: dict, download_dir: str, download_asset: int, download_resour
             ab_name = asset['name']
             object_name = asset['objectName']
             md5_name = asset['md5']
-            url = f'https://object.asset.game-gakuen-idolmaster.jp/{object_name}'
+            url = _buildUrl(urlFormat, object_name)
             file_path = os.path.join(assetpath, md5_name)
             # An existing file is only reused when its size still matches the manifest:
             # a truncated payload (aborted write) would otherwise be trusted forever.
@@ -147,7 +167,7 @@ def download(jdic: dict, download_dir: str, download_asset: int, download_resour
             res_name = res['name']
             object_name = res['objectName']
             md5_name = res['md5']
-            url = f"https://object.asset.game-gakuen-idolmaster.jp/{object_name}"
+            url = _buildUrl(urlFormat, object_name)
             file_path = os.path.join(resourcepath, res.get('type', 'others'), res_name)
             expectedSize = res.get('size')
             presentSize = os.path.getsize(file_path) if os.path.isfile(file_path) else None

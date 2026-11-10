@@ -1,15 +1,16 @@
 from rich.console import Console
 from pathlib import Path
 
-__inputDirectory = "./gkmas/Assets/"
-__outputPath = "./gkmas/UnobfuscateAssets/"
 console = Console()
 
-def unObfuscate(jDict: dict, offset: int = 0, streamPos: int = 0, headerLength: int = 256):
+def unObfuscate(jDict: dict, offset: int = 0, streamPos: int = 0, headerLength: int = 256, baseDir: str = "./gkmas"):
     """
     Args: 
         assetList (list): Assets list to unobfuscate
+        baseDir (str): Directory that holds 'Assets' and receives 'UnobfuscateAssets'
     """
+    inputDirectory = Path(baseDir).joinpath("Assets")
+    outputPath = Path(baseDir).joinpath("UnobfuscateAssets")
     assetList: list = jDict["assetBundleList"]
     md5NameDict = {
         it["md5"] : it["name"]
@@ -19,12 +20,10 @@ def unObfuscate(jDict: dict, offset: int = 0, streamPos: int = 0, headerLength: 
         it["md5"] : it["type"]
         for it in assetList
     }
-    contents = Path(__inputDirectory).glob("**/*")
-    try:
-        filePaths = [path for path in contents if path.name in md5NameDict]
-    except FileNotFoundError:
-        console.print(f"[bold red]>>> [Error][/bold red] Folder '{__inputDirectory}' is not exists. Unobfuscation has been discarted.")
+    if not inputDirectory.is_dir():
+        console.print(f"[bold red]>>> [Error][/bold red] Folder '{inputDirectory}' does not exist. Unobfuscation has been discarded.")
         return
+    filePaths = [path for path in inputDirectory.glob("**/*") if path.name in md5NameDict]
 
     filePaths.sort(key=lambda x: x.name)
     unitySignature = b"\x55\x6e\x69\x74\x79"    # Unity
@@ -36,7 +35,7 @@ def unObfuscate(jDict: dict, offset: int = 0, streamPos: int = 0, headerLength: 
         md5 = path.name
         name = md5NameDict.get(md5)
         _type = md5TypeDict.get(md5)
-        exportFolder = Path(__outputPath).joinpath(str(jDict["revision"])).joinpath(_type)
+        exportFolder = outputPath.joinpath(str(jDict["revision"])).joinpath(_type)
         exportFile = exportFolder.joinpath(name + ".unity3d")
         # Skip when the exported copy is already complete. Unobfuscating rewrites
         # bytes in place, so a finished export always has the same length as its

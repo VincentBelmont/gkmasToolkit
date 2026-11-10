@@ -2,8 +2,8 @@
 EncryptedCache/
 
 # Unpacked output produced by Main.py.
-gkmas/
-DecryptedCache/
+/gkmas
+/DecryptedCache
 
 # Python bytecode caches.
 __pycache__/
