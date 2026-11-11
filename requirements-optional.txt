@@ -1,0 +1,2 @@
+# Only needed by ImageConvertor.py (texture resize and webp export).
+pillow>=10
