@@ -46,8 +46,15 @@ textures, models and audio out of them.
 `ImageConvertor.py` is a separate, standalone helper and does **not** read
 `.unity3d` files. It takes PNGs exported by such an extractor, resizes each one
 to 1820x1024 (the source textures are 2048x1024 with extra padding) and saves it
-as lossless WebP. Adjust the `input` and `output` paths at the top of that file
-before running it.
+as lossless WebP:
+
+```bash
+python ImageConvertor.py <exported-textures-dir> [-o output-dir]
+```
+
+Output subdirectories are mirrored by default; use `--flat` to write everything
+into one directory, `--size WxH` to change the target size and `--format png` to
+keep PNG instead of WebP.
 
 # Disclaimer
 Use at your own risk.</br>
